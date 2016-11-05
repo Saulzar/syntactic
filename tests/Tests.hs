@@ -4,6 +4,8 @@ import qualified AlgorithmTests
 import qualified NanoFeldsparTests
 import qualified WellScopedTests
 import qualified MonadTests
+
+import qualified ClosedUniverse
 import qualified TH
 
 tests = testGroup "AllTests"
@@ -16,4 +18,3 @@ tests = testGroup "AllTests"
 main = do
     TH.main
     defaultMain tests
-

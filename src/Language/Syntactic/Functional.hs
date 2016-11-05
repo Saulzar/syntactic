@@ -411,7 +411,7 @@ instance {-# OVERLAPPING #-} BindingDomain sym
 -- variable.
 --
 -- The string tag may be empty.
-data Let sig
+data Let (sig :: Sig k)
   where
     Let :: String -> Let (a :-> (a -> b) :-> Full b)
 

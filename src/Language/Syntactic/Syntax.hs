@@ -216,7 +216,7 @@ instance (NFData1 sym1, NFData1 sym2) => NFData1 (sym1 :+: sym2)
 --
 -- The class is defined for /all pairs of types/, but 'prj' can only succeed if @sup@ is of the form
 -- @(... `:+:` sub `:+:` ...)@.
-class Project sub sup
+class Project (sub :: Sig k -> *) (sup :: Sig k -> *)
   where
     -- | Partial projection from @sup@ to @sub@
     prj :: sup a -> Maybe (sub a)
@@ -248,7 +248,7 @@ instance Project sub sup
 -- | Symbol injection
 --
 -- The class includes types @sub@ and @sup@ where @sup@ is of the form @(... `:+:` sub `:+:` ...)@.
-class Project sub sup => sub :<: sup
+class Project sub sup => (sub :: Sig k -> *) :<: (sup :: Sig k -> *)
   where
     -- | Injection from @sub@ to @sup@
     inj :: sub a -> sup a
