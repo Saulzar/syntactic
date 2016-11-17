@@ -63,6 +63,7 @@ module Language.Syntactic.Functional
     ) where
 
 
+import Data.Kind (Constraint, Type)
 
 #if MIN_VERSION_GLASGOW_HASKELL(7,10,0,0)
 #else
@@ -189,15 +190,18 @@ instance StringTree Binding
     stringTreeSym []     (Var v) = Node ('v' : show v) []
     stringTreeSym [body] (Lam v) = Node ("Lam " ++ 'v' : show v) [body]
 
+
+type BindingDomain (bind :: Sym Type) (sym :: Sym Type) = (bind :<: sym, BindingSym bind)
+
 -- | Get the highest name bound by the first 'Lam' binders at every path from the root. If the term
 -- has /ordered binders/ \[1\], 'maxLam' returns the highest name introduced in the whole term.
 --
 -- \[1\] Ordered binders means that the names of 'Lam' nodes are decreasing along every path from
 -- the root.
-maxLam :: (Project Binding s) => AST s a -> Name
-maxLam (Sym lam :$ _) | Just (Lam v) <- prj lam = v
-maxLam (s :$ a) = maxLam s `Prelude.max` maxLam a
-maxLam _ = 0
+maxLam :: (BindingDomain bind s) => proxy bind -> AST s a -> Name
+maxLam p (Sym lam :$ _) | Just n <- prVar p lam = n
+maxLam p (s :$ a) = maxLam p s `Prelude.max` maxLam p a
+maxLam _ _ = 0
 
 -- | Higher-order interface for variable binding for domains based on 'Binding'
 --
@@ -212,23 +216,13 @@ maxLam _ = 0
 --
 -- See \"Using Circular Programs for Higher-Order Syntax\"
 -- (ICFP 2013, <http://www.cse.chalmers.se/~emax/documents/axelsson2013using.pdf>).
-lam_template :: (Project Binding sym)
-    => (Name -> sym (Full a))
-         -- ^ Variable symbol constructor
-    -> (Name -> ASTF sym b -> ASTF sym (a -> b))
-         -- ^ Lambda constructor
-    -> (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
-lam_template mkVar mkLam f = mkLam v body
+lam :: forall proxy bind sym a b. (BindingDomain bind sym, Inject sym (Full a), Inject sym (b :-> Full (a -> b)), Bindable bind a, Bindable bind b)
+    => proxy bind -> (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
+lam p f = fun :$ body
   where
-    body = f $ Sym $ mkVar v
-    v    = succ $ maxLam body
-
--- | Higher-order interface for variable binding
---
--- This function is 'lamT_template' specialized to domains @sym@ satisfying
--- @(`Binding` `:<:` sym)@.
-lam :: (Binding :<: sym) => (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
-lam = lam_template (inj . Var) (\v a -> Sym (inj (Lam v)) :$ a)
+    fun = inj (mkLam v :: bind (b :-> Full (a -> b)))
+    body = f $ inj (mkVar v :: bind (Full a))
+    v    = succ $ maxLam p body
 
 -- | Convert from a term with De Bruijn indexes to one with explicit names
 --
@@ -242,7 +236,7 @@ fromDeBruijn = go []
     go vs (lam :$ body) | Just (Lam _) <- prj lam = inj (Lam v) :$ body'
       where
         body' = go (v:vs) body
-        v     = succ $ maxLam body'
+        v     = succ $ maxLam (Proxy @Binding) body'
           -- Same trick as in `lam`
     go vs a = gmapT (go vs) a
 
@@ -289,116 +283,31 @@ instance StringTree BindingT
     stringTreeSym args (VarT v) = stringTreeSym args (Var v)
     stringTreeSym args (LamT v) = stringTreeSym args (Lam v)
 
--- | Get the highest name bound by the first 'LamT' binders at every path from the root. If the term
--- has /ordered binders/ \[1\], 'maxLamT' returns the highest name introduced in the whole term.
---
--- \[1\] Ordered binders means that the names of 'LamT' nodes are decreasing along every path from
--- the root.
-maxLamT :: Project BindingT sym => AST sym a -> Name
-maxLamT (Sym lam :$ _) | Just (LamT n :: BindingT (b :-> a)) <- prj lam = n
-maxLamT (s :$ a) = maxLamT s `Prelude.max` maxLamT a
-maxLamT _ = 0
-
--- | Higher-order interface for variable binding
---
--- Assumptions:
---
---   * The body @f@ does not inspect its argument.
---
---   * Applying @f@ to a term with ordered binders results in a term with /ordered binders/ \[1\].
---
--- \[1\] Ordered binders means that the names of 'LamT' nodes are decreasing along every path from
--- the root.
---
--- See \"Using Circular Programs for Higher-Order Syntax\"
--- (ICFP 2013, <http://www.cse.chalmers.se/~emax/documents/axelsson2013using.pdf>).
-lamT_template :: Project BindingT sym
-    => (Name -> sym (Full a))
-         -- ^ Variable symbol constructor
-    -> (Name -> ASTF sym b -> ASTF sym (a -> b))
-         -- ^ Lambda constructor
-    -> (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
-lamT_template mkVar mkLam f = mkLam v body
-  where
-    body = f $ Sym $ mkVar v
-    v    = succ $ maxLamT body
-
--- | Higher-order interface for variable binding
---
--- This function is 'lamT_template' specialized to domains @sym@ satisfying
--- @(`BindingT` `:<:` sym)@.
-lamT :: (BindingT :<: sym, Typeable a) =>
-    (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
-lamT = lamT_template (inj . VarT) (\v a -> Sym (inj (LamT v)) :$ a)
-
--- | Higher-order interface for variable binding
---
--- This function is 'lamT_template' specialized to domains @sym@ satisfying
--- @(sym ~ `Typed` s, `BindingT` `:<:` s)@.
-lamTyped :: (sym ~ Typed s, BindingT :<: s, Typeable a, Typeable b) =>
-    (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
-lamTyped = lamT_template
-    (Typed . inj . VarT)
-    (\v a -> Sym (Typed (inj (LamT v))) :$ a)
-
 -- | Domains that \"might\" include variables and binders
-class BindingDomain sym
+class BindingSym (bind :: Sym Type)
   where
-    prVar :: sym sig -> Maybe Name
-    prLam :: sym sig -> Maybe Name
+    type Bindable bind (a :: t) :: Constraint
+    type Bindable bind sig = ()
+
+    varName :: bind sig -> Maybe Name
+    lamName :: bind sig -> Maybe Name
+
+    mkVar :: Bindable bind a => Name -> bind (Full a)
+    mkLam :: Bindable bind a => Name -> bind (b :-> Full (a -> b))
 
     -- | Rename a variable or a lambda (no effect for other symbols)
-    renameBind :: (Name -> Name) -> sym sig -> sym sig
+    mapName :: (Name -> Name) -> bind sig -> bind sig
 
-instance {-# OVERLAPPING #-}
-         (BindingDomain sym1, BindingDomain sym2) => BindingDomain (sym1 :+: sym2)
-  where
-    prVar (InjL s) = prVar s
-    prVar (InjR s) = prVar s
-    prLam (InjL s) = prLam s
-    prLam (InjR s) = prLam s
-    renameBind re (InjL s) = InjL $ renameBind re s
-    renameBind re (InjR s) = InjR $ renameBind re s
 
-instance {-# OVERLAPPING #-} BindingDomain sym => BindingDomain (Typed sym)
-  where
-    prVar (Typed s) = prVar s
-    prLam (Typed s) = prLam s
-    renameBind re (Typed s) = Typed $ renameBind re s
+renameBind :: (BindingDomain bind sym, Inject sym sig) => proxy bind -> (Name -> Name) -> sym sig -> sym sig
+renameBind _ f sym | Just b <- prj sym = inj (mapName f b)
 
-instance {-# OVERLAPPING #-} BindingDomain sym => BindingDomain (sym :&: i)
-  where
-    prVar = prVar . decorExpr
-    prLam = prLam . decorExpr
-    renameBind re (s :&: d) = renameBind re s :&: d
+prVar :: (BindingDomain bind sym) => proxy bind -> sym sig -> Maybe Name
+prVar _ sym = prj sym >>= varName
 
-instance {-# OVERLAPPING #-} BindingDomain sym => BindingDomain (AST sym)
-  where
-    prVar (Sym s) = prVar s
-    prVar _       = Nothing
-    prLam (Sym s) = prLam s
-    prLam _       = Nothing
-    renameBind re (Sym s) = Sym $ renameBind re s
+prLam :: (BindingDomain bind sym) => proxy bind -> sym sig -> Maybe Name
+prLam _ sym = prj sym >>= varName
 
-instance {-# OVERLAPPING #-} BindingDomain Binding
-  where
-    prVar (Var v) = Just v
-    prLam (Lam v) = Just v
-    renameBind re (Var v) = Var $ re v
-    renameBind re (Lam v) = Lam $ re v
-
-instance {-# OVERLAPPING #-} BindingDomain BindingT
-  where
-    prVar (VarT v) = Just v
-    prLam (LamT v) = Just v
-    renameBind re (VarT v) = VarT $ re v
-    renameBind re (LamT v) = LamT $ re v
-
-instance {-# OVERLAPPING #-} BindingDomain sym
-  where
-    prVar _ = Nothing
-    prLam _ = Nothing
-    renameBind _ a = a
 
 -- | A symbol for let bindings
 --
@@ -513,27 +422,28 @@ desugarMonadTyped = flip runCont (sugarSymTyped Return) . unRemon
 
 
 
+
 ----------------------------------------------------------------------------------------------------
 -- * Free and bound variables
 ----------------------------------------------------------------------------------------------------
 
 -- | Get the set of free variables in an expression
-freeVars :: BindingDomain sym => AST sym sig -> Set Name
-freeVars var
-    | Just v <- prVar var = Set.singleton v
-freeVars (lam :$ body)
-    | Just v <- prLam lam = Set.delete v (freeVars body)
-freeVars (s :$ a) = Set.union (freeVars s) (freeVars a)
+freeVars :: (BindingDomain bind sym) => proxy bind -> AST sym sig -> Set Name
+freeVars _ var
+    | Just v <- prVar p var = Set.singleton v
+freeVars p (lam :$ body)
+    | Just v <- prLam p lam = Set.delete v (freeVars p body)
+freeVars p (s :$ a) = Set.union (freeVars p s) (freeVars p a)
 freeVars _ = Set.empty
 
 -- | Get the set of variables (free, bound and introduced by lambdas) in an
 -- expression
-allVars :: BindingDomain sym => AST sym sig -> Set Name
+allVars :: BindingDomain bind sym => proxy bind -> AST sym sig -> Set Name
 allVars var
-    | Just v <- prVar var = Set.singleton v
+    | Just v <- prVar p var = Set.singleton v
 allVars (lam :$ body)
-    | Just v <- prLam lam = Set.insert v (allVars body)
-allVars (s :$ a) = Set.union (allVars s) (allVars a)
+    | Just v <- prLam p lam = Set.insert v (allVars p body)
+allVars (s :$ a) = Set.union (allVars p s) (allVars p a)
 allVars _ = Set.empty
 
 -- | Generate an infinite list of fresh names given a list of allocated names
@@ -560,22 +470,22 @@ freshVar = do
 -- names using as small names as possible. The first argument is a list of
 -- reserved names. Reserved names and names of free variables are not used when
 -- renaming bound variables.
-renameUnique' :: forall sym a . BindingDomain sym =>
-    [Name] -> ASTF sym a -> ASTF sym a
-renameUnique' vs a = flip evalState fs $ go Map.empty a
+renameUnique' :: forall proxy bind sym a . BindingDomain bind sym =>
+    proxy bind -> [Name] -> ASTF sym a -> ASTF sym a
+renameUnique' p vs a = flip evalState fs $ go Map.empty a
   where
-    fs = freshVars $ Set.toAscList (freeVars a `Set.union` Set.fromList vs)
+    fs = freshVars $ Set.toAscList (freeVars b a `Set.union` Set.fromList vs)
 
     go :: Map Name Name -> AST sym sig -> State [Name] (AST sym sig)
     go env var
-      | Just v <- prVar var = case Map.lookup v env of
-          Just w -> return $ renameBind (\_ -> w) var
+      | Just v <- prVar p var = case Map.lookup v env of
+          Just w -> return $ renameBind p (\_ -> w) var
           _ -> return var  -- Free variable
     go env (lam :$ body)
-      | Just v <- prLam lam = do
+      | Just v <- prLam p lam = do
           w     <- freshVar
           body' <- go (Map.insert v w env) body
-          return $ renameBind (\_ -> w) lam :$ body'
+          return $ renameBind p (\_ -> w) lam :$ body'
     go env (s :$ a) = liftM2 (:$) (go env s) (go env a)
     go env s = return s
 
@@ -584,8 +494,8 @@ renameUnique' vs a = flip evalState fs $ go Map.empty a
 -- The free variables are left untouched. The bound variables are given unique
 -- names using as small names as possible. Names of free variables are not used
 -- when renaming bound variables.
-renameUnique :: BindingDomain sym => ASTF sym a -> ASTF sym a
-renameUnique = renameUnique' []
+renameUnique :: BindingDomain bind sym => proxy bind -> ASTF sym a -> ASTF sym a
+renameUnique p = renameUnique' p []
 
 
 
@@ -596,43 +506,43 @@ renameUnique = renameUnique' []
 -- | Environment used by 'alphaEq''
 type AlphaEnv = [(Name,Name)]
 
-alphaEq' :: (Equality sym, BindingDomain sym) => AlphaEnv -> ASTF sym a -> ASTF sym b -> Bool
-alphaEq' env var1 var2
-    | Just v1 <- prVar var1
-    , Just v2 <- prVar var2
+alphaEq' :: (Equality sym, BindingDomain bind sym) => proxy bind -> AlphaEnv -> ASTF sym a -> ASTF sym b -> Bool
+alphaEq' p env var1 var2
+    | Just v1 <- prVar p var1
+    , Just v2 <- prVar p var2
     = case (lookup v1 env, lookup v2 env') of
         (Nothing, Nothing)   -> v1==v2  -- Free variables
         (Just v2', Just v1') -> v1==v1' && v2==v2'
         _                    -> False
   where
     env' = [(v2,v1) | (v1,v2) <- env]
-alphaEq' env (lam1 :$ body1) (lam2 :$ body2)
-    | Just v1 <- prLam lam1
-    , Just v2 <- prLam lam2
-    = alphaEq' ((v1,v2):env) body1 body2
-alphaEq' env a b = simpleMatch (alphaEq'' env b) a
+alphaEq' p env (lam1 :$ body1) (lam2 :$ body2)
+    | Just v1 <- prLam p lam1
+    , Just v2 <- prLam p lam2
+    = alphaEq' p ((v1,v2):env) body1 body2
+alphaEq' p env a b = simpleMatch (alphaEq'' p env b) a
 
-alphaEq'' :: (Equality sym, BindingDomain sym) =>
-    AlphaEnv -> ASTF sym b -> sym a -> Args (AST sym) a -> Bool
-alphaEq'' env b a aArgs = simpleMatch (alphaEq''' env a aArgs) b
+alphaEq'' :: (Equality sym, BindingDomain bind sym) =>
+    proxy bind -> AlphaEnv -> ASTF sym b -> sym a -> Args (AST sym) a -> Bool
+alphaEq'' p env b a aArgs = simpleMatch (alphaEq''' p env a aArgs) b
 
-alphaEq''' :: (Equality sym, BindingDomain sym) =>
-    AlphaEnv -> sym a -> Args (AST sym) a -> sym b -> Args (AST sym) b -> Bool
-alphaEq''' env a aArgs b bArgs
-    | equal a b = alphaEqChildren env a' b'
+alphaEq''' :: (Equality sym, BindingDomain bind sym) =>
+    proxy bind -> AlphaEnv -> sym a -> Args (AST sym) a -> sym b -> Args (AST sym) b -> Bool
+alphaEq''' p env a aArgs b bArgs
+    | equal a b = alphaEqChildren p env a' b'
     | otherwise = False
   where
     a' = appArgs (Sym undefined) aArgs
     b' = appArgs (Sym undefined) bArgs
 
-alphaEqChildren :: (Equality sym, BindingDomain sym) => AlphaEnv -> AST sym a -> AST sym b -> Bool
-alphaEqChildren _ (Sym _) (Sym _) = True
-alphaEqChildren env (s :$ a) (t :$ b) = alphaEqChildren env s t && alphaEq' env a b
-alphaEqChildren _ _ _ = False
+alphaEqChildren :: (Equality sym, BindingDomain bind sym) => proxy bind -> AlphaEnv -> AST sym a -> AST sym b -> Bool
+alphaEqChildren _ _ (Sym _) (Sym _) = True
+alphaEqChildren p env (s :$ a) (t :$ b) = alphaEqChildren p env s t && alphaEq' p env a b
+alphaEqChildren _ _ _ _ = False
 
 -- | Alpha-equivalence
-alphaEq :: (Equality sym, BindingDomain sym) => ASTF sym a -> ASTF sym b -> Bool
-alphaEq = alphaEq' []
+alphaEq :: (Equality sym, BindingDomain bind sym) => proxy bind -> ASTF sym a -> ASTF sym b -> Bool
+alphaEq p = alphaEq' p []
 
 
 
@@ -641,11 +551,11 @@ alphaEq = alphaEq' []
 ----------------------------------------------------------------------------------------------------
 
 -- | Semantic function type of the given symbol signature
-type family Denotation (sig :: Sig *) where
+type family Denotation (sig :: Sig Type) where
   Denotation (Full a)    = a
   Denotation (a :-> sig) = a -> Denotation sig
 
-class Eval (s :: Sig * -> *)
+class Eval (s :: Sig Type -> Type)
   where
     evalSym :: s sig -> Denotation sig
 
@@ -694,7 +604,7 @@ evalDen = go
 -- to
 --
 -- > m a -> m b -> m c
-type family   DenotationM (m :: * -> *) sig where
+type family   DenotationM (m :: Type -> Type) sig where
   DenotationM m (Full a)    = m a
   DenotationM m (a :-> sig) = m a -> DenotationM m sig
 

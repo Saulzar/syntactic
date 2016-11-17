@@ -20,6 +20,7 @@ module Language.Syntactic.Sugar where
 
 
 import Data.Typeable
+import Data.Kind(Type)
 
 import Language.Syntactic.Syntax
 
@@ -29,19 +30,19 @@ import Language.Syntactic.Syntax
 -- as @a@.
 class Syntactic a
   where
-    type Domain a :: Sig * -> *
+    type Domain a :: Sig Type -> Type
     type Internal a
     desugar :: a -> ASTF (Domain a) (Internal a)
     sugar   :: ASTF (Domain a) (Internal a) -> a
 
-instance Syntactic (ASTF (sym :: Sig * -> *) a)
+instance Syntactic (ASTF (sym :: Sig Type -> Type) a)
   where
     type Domain (ASTF sym a)   = sym
     type Internal (ASTF sym a) = a
     desugar = id
     sugar   = id
 
-instance Syntactic (ASTFull (sym :: Sig * -> *) a)
+instance Syntactic (ASTFull (sym :: Sig Type -> Type) a)
   where
     type Domain (ASTFull sym a)   = sym
     type Internal (ASTFull sym a) = a
@@ -111,10 +112,9 @@ instance {-# OVERLAPPING #-}
 sugarSym
     :: ( Signature sig
        , fi  ~ SmartFun sup sig
-       , sig ~ SmartSig fi
-       , sup ~ SmartSym fi
        , SyntacticN f fi
        , sub :<: sup
+       , Inject sup sig
        )
     => sub sig -> f
 sugarSym = sugarN . smartSym
@@ -136,11 +136,9 @@ sugarSym = sugarN . smartSym
 sugarSymTyped
     :: ( Signature sig
        , fi        ~ SmartFun (Typed sup) sig
-       , sig       ~ SmartSig fi
-       , Typed sup ~ SmartSym fi
        , SyntacticN f fi
        , sub :<: sup
-       , Typeable (DenResult sig)
+       , Inject (Typed sup) sig
        )
     => sub sig -> f
 sugarSymTyped = sugarN . smartSymTyped

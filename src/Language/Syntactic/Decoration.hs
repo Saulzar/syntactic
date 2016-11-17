@@ -148,9 +148,8 @@ writeHtmlDecorWith showInfo file a = writeHtmlTree Nothing file $ mkTree [] a
 smartSymDecor
     :: ( Signature sig
        , f              ~ SmartFun (sup :&: info) sig
-       , sig            ~ SmartSig f
-       , (sup :&: info) ~ SmartSym f
        , sub :<: sup
+       , Inject sup sig
        )
     => info (DenResult sig) -> sub sig -> f
 smartSymDecor d = smartSym' . (:&: d) . inj
@@ -172,11 +171,9 @@ smartSymDecor d = smartSym' . (:&: d) . inj
 sugarSymDecor
     :: ( Signature sig
        , fi             ~ SmartFun (sup :&: info) sig
-       , sig            ~ SmartSig fi
-       , (sup :&: info) ~ SmartSym fi
        , SyntacticN f fi
        , sub :<: sup
+       , Inject sup sig
        )
     => info (DenResult sig) -> sub sig -> f
 sugarSymDecor i = sugarN . smartSymDecor i
-

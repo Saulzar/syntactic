@@ -21,6 +21,7 @@ module Language.Syntactic.Syntax
       AST (..)
     , ASTF
     , ASTFull (..)
+    , Sym
     , Sig (..)
     , SigRep (..)
     , Signature (..)
@@ -29,8 +30,6 @@ module Language.Syntactic.Syntax
     , size
       -- * Smart constructors
     , SmartFun
-    , SmartSig
-    , SmartSym
     , smartSym'
       -- * Open symbol domains
     , (:+:) (..)
@@ -48,7 +47,7 @@ module Language.Syntactic.Syntax
     , liftEF2
       -- * Type casting expressions
     , Typed (..)
-    , injT
+  --  , injT
     , castExpr
       -- * Misc.
     , NFData1 (..)
@@ -57,6 +56,7 @@ module Language.Syntactic.Syntax
     ) where
 
 
+import Data.Kind (Type, Constraint)
 
 import Control.DeepSeq
 import Data.Typeable
@@ -73,6 +73,8 @@ data Sig a = Full a | (:->) a (Sig a)
 
 infixr :->
 
+type Sym t = (Sig t -> Type)
+
 --------------------------------------------------------------------------------
 -- * Syntax trees
 --------------------------------------------------------------------------------
@@ -82,7 +84,7 @@ infixr :->
 -- @(`AST` sym (a `:->` b))@ represents a partially applied (or unapplied)
 -- symbol, missing at least one argument, while @(`AST` sym (`Full` a))@
 -- represents a fully applied symbol, i.e. a complete syntax tree.
-data AST :: (Sig t -> *) -> Sig t -> *
+data AST :: Sym t -> Sym t
   where
     Sym  :: sym sig -> AST sym sig
     (:$) :: AST sym (a :-> sig) -> AST sym (Full a) -> AST sym sig
@@ -153,21 +155,21 @@ size (s :$ a) = size s + size a
 -- | Maps a symbol signature to the type of the corresponding smart constructor:
 --
 -- > SmartFun sym (a :-> b :-> ... :-> Full x) = ASTF sym a -> ASTF sym b -> ... -> ASTF sym x
-type family   SmartFun (sym :: Sig t -> *) sig where
+type family   SmartFun (sym :: Sig t -> Type) sig = f | f -> sym sig  where
   SmartFun sym (Full a)    = ASTF sym a
   SmartFun sym (a :-> sig) = ASTF sym a -> SmartFun sym sig
 
 -- | Maps a smart constructor type to the corresponding symbol signature:
 --
 -- > SmartSig (ASTF sym a -> ASTF sym b -> ... -> ASTF sym x) = a :-> b :-> ... :-> Full x
-type family   SmartSig f where
-  SmartSig (AST sym sig)     = sig
-  SmartSig (ASTF sym a -> f) = a :-> SmartSig f
-
--- | Returns the symbol in the result of a smart constructor
-type family   SmartSym f :: Sig t -> * where
-  SmartSym (AST sym sig) = sym
-  SmartSym (a -> f)      = SmartSym f
+-- type family   SmartSig f where
+--   SmartSig (AST sym sig)     = sig
+--   SmartSig (ASTF sym a -> f) = a :-> SmartSig f
+--
+-- -- | Returns the symbol in the result of a smart constructor
+-- type family   SmartSym f :: Sig t -> Type where
+--   SmartSym (AST sym sig) = sym
+--   SmartSym (a -> f)      = SmartSym f
 
 -- | Make a smart constructor of a symbol. 'smartSym'' has any type of the form:
 --
@@ -177,8 +179,6 @@ type family   SmartSym f :: Sig t -> * where
 smartSym' :: forall sig f sym
     .  ( Signature sig
        , f   ~ SmartFun sym sig
-       , sig ~ SmartSig f
-       , sym ~ SmartSym f
        )
     => sym sig -> f
 smartSym' s = go (signature :: SigRep sig) (Sym s)
@@ -250,23 +250,32 @@ instance Project sub sup
 -- The class includes types @sub@ and @sup@ where @sup@ is of the form @(... `:+:` sub `:+:` ...)@.
 class Project sub sup => sub :<: sup
   where
+    type Inject sup (sig :: Sig t) :: Constraint
+    type Inject sup sig = ()
     -- | Injection from @sub@ to @sup@
-    inj :: sub a -> sup a
+    inj :: Inject sup sig => sub sig -> sup sig
 
 instance {-# OVERLAPPING #-} (sub :<: sup) => (sub :<: AST sup)
   where
+    type Inject (AST sup) sig = (Inject sup sig)
     inj = Sym . inj
 
-instance {-# OVERLAPPING #-} (sym :<: sym)
+instance {-# OVERLAPPING #-} (sub :<: sup) => (sub :<: Typed sup)
   where
-    inj = id
+    type Inject (Typed sup) sig = (Typeable (DenResult sig), Inject sup sig)
+    inj = Typed . inj
+
 
 instance {-# OVERLAPPING #-} (sym1 :<: (sym1 :+: sym2))
   where
+
+    type Inject (sym1 :+: sym2) sig = (Inject sym1 sig, Inject sym2 sig)
     inj = InjL
 
 instance {-# OVERLAPPING #-} (sym1 :<: sym3) => (sym1 :<: (sym2 :+: sym3))
   where
+
+    type Inject (sym2 :+: sym3) sig = (Inject sym2 sig, Inject sym3 sig)
     inj = InjR . inj
 
 -- The reason for separating the `Project` and `(:<:)` classes is that there are
@@ -281,9 +290,8 @@ instance {-# OVERLAPPING #-} (sym1 :<: sym3) => (sym1 :<: (sym2 :+: sym3))
 smartSym
     :: ( Signature sig
        , f   ~ SmartFun sup sig
-       , sig ~ SmartSig f
-       , sup ~ SmartSym f
        , sub :<: sup
+       , Inject sup sig
        )
     => sub sig -> f
 smartSym = smartSym' . inj
@@ -297,13 +305,11 @@ smartSym = smartSym' . inj
 smartSymTyped
     :: ( Signature sig
        , f         ~ SmartFun (Typed sup) sig
-       , sig       ~ SmartSig f
-       , Typed sup ~ SmartSym f
        , sub :<: sup
-       , Typeable (DenResult sig)
+       , Inject (Typed sup) sig
        )
     => sub sig -> f
-smartSymTyped = smartSym' . Typed . inj
+smartSymTyped = smartSym
 
 -- | Empty symbol type
 --
@@ -311,7 +317,7 @@ smartSymTyped = smartSym' . Typed . inj
 -- lists (e.g. to avoid overlapping instances):
 --
 -- > (A :+: B :+: Empty)
-data Empty :: k -> *
+data Empty :: k -> Type
 
 
 
@@ -349,7 +355,7 @@ liftEF2 f (EF a) (EF b) = f a b
 
 -- | \"Typed\" symbol. Using @`Typed` sym@ instead of @sym@ gives access to the
 -- function 'castExpr' for casting expressions.
-data Typed :: (Sig * -> *) -> Sig * -> *
+data Typed :: (Sig Type -> Type) -> Sig Type ->Type
   where
     Typed :: Typeable (DenResult sig) => sym sig -> Typed sym sig
 
@@ -357,10 +363,10 @@ instance {-# OVERLAPPING #-} Project sub sup => Project sub (Typed sup)
   where
     prj (Typed s) = prj s
 
--- | Inject a symbol in an 'AST' with a 'Typed' domain
-injT :: (sub :<: sup, Typeable (DenResult sig)) =>
-    sub sig -> AST (Typed sup) sig
-injT = Sym . Typed . inj
+-- -- | Inject a symbol in an 'AST' with a 'Typed' domain
+-- injT :: (sub :<: sup, Typeable (DenResult sig)) =>
+--     sub sig -> AST (Typed sup) sig
+-- injT = Sym . Typed . inj
 
 -- | Type cast an expression
 castExpr :: forall sym a b

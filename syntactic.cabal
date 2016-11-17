@@ -117,7 +117,11 @@ library
     ScopedTypeVariables
     TypeFamilies
     TypeOperators
-    
+    TypeInType
+    ConstraintKinds
+    TypeFamilyDependencies
+    TypeApplications
+
 
 
   other-extensions:
