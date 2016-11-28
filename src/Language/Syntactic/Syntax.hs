@@ -57,6 +57,7 @@ module Language.Syntactic.Syntax
 
 
 import Data.Kind (Type, Constraint)
+import Data.Constraint
 
 import Control.DeepSeq
 import Data.Typeable
@@ -216,66 +217,72 @@ instance (NFData1 sym1, NFData1 sym2) => NFData1 (sym1 :+: sym2)
 --
 -- The class is defined for /all pairs of types/, but 'prj' can only succeed if @sup@ is of the form
 -- @(... `:+:` sub `:+:` ...)@.
-class Project sub sup
+class Project (sub :: Sym t) (sup :: Sym t)
   where
+    type Inject sup (sig :: Sig t) :: Constraint
+    type Inject sup sig = ()
+
     -- | Partial projection from @sup@ to @sub@
     prj :: sup a -> Maybe (sub a)
+    prj = (fmap fst) . prj'
+
+    prj' :: sup a -> Maybe (sub a, Dict (Inject sup a))
+
 
 instance {-# OVERLAPPING #-} Project sub sup => Project sub (AST sup)
   where
-    prj (Sym s) = prj s
-    prj _       = Nothing
+    type Inject (AST sup) sig = (Inject sup sig)
 
-instance {-# OVERLAPPING #-} Project sym sym
-  where
-    prj = Just
+    prj' (Sym s) = prj' s
+    prj' _       = Nothing
+
 
 instance {-# OVERLAPPING #-} Project sym1 (sym1 :+: sym2)
   where
-    prj (InjL a) = Just a
-    prj _        = Nothing
+    type Inject (sym1 :+: sym2) sig = ()
 
-instance {-# OVERLAPPING #-} Project sym1 sym3 => Project sym1 (sym2 :+: sym3)
-  where
-    prj (InjR a) = prj a
-    prj _        = Nothing
+    prj' (InjL a) = Just (a, Dict)
+    prj' _        = Nothing
 
--- | If @sub@ is not in @sup@, 'prj' always returns 'Nothing'.
-instance Project sub sup
+type NoConstraint sig  = (() :: Constraint)
+
+instance {-# OVERLAPPING #-} (Project sym1 sym3) => Project sym1 (sym2 :+: sym3)
   where
-    prj _ = Nothing
+    type Inject (sym2 :+: sym3) sig = ()
+
+    prj' (InjR a) = (, Dict) <$> prj a
+    prj' _        = Nothing
+
+-- instance {-# OVERLAPPING #-} Project sym sup
+--     where
+--       type Inject sym sig = ()
+--
+--       prj' _        = Nothing
+
 
 -- | Symbol injection
 --
 -- The class includes types @sub@ and @sup@ where @sup@ is of the form @(... `:+:` sub `:+:` ...)@.
 class Project sub sup => sub :<: sup
   where
-    type Inject sup (sig :: Sig t) :: Constraint
-    type Inject sup sig = ()
     -- | Injection from @sub@ to @sup@
     inj :: Inject sup sig => sub sig -> sup sig
 
 instance {-# OVERLAPPING #-} (sub :<: sup) => (sub :<: AST sup)
   where
-    type Inject (AST sup) sig = (Inject sup sig)
     inj = Sym . inj
 
 instance {-# OVERLAPPING #-} (sub :<: sup) => (sub :<: Typed sup)
   where
-    type Inject (Typed sup) sig = (Typeable (DenResult sig), Inject sup sig)
     inj = Typed . inj
 
 
 instance {-# OVERLAPPING #-} (sym1 :<: (sym1 :+: sym2))
   where
-
-    type Inject (sym1 :+: sym2) sig = (Inject sym1 sig, Inject sym2 sig)
     inj = InjL
 
 instance {-# OVERLAPPING #-} (sym1 :<: sym3) => (sym1 :<: (sym2 :+: sym3))
   where
-
-    type Inject (sym2 :+: sym3) sig = (Inject sym2 sig, Inject sym3 sig)
     inj = InjR . inj
 
 -- The reason for separating the `Project` and `(:<:)` classes is that there are
@@ -359,9 +366,10 @@ data Typed :: (Sig Type -> Type) -> Sig Type ->Type
   where
     Typed :: Typeable (DenResult sig) => sym sig -> Typed sym sig
 
-instance {-# OVERLAPPING #-} Project sub sup => Project sub (Typed sup)
+instance {-# OVERLAPPING #-} Project sym1 sym2 => Project sym1 (Typed sym2)
   where
-    prj (Typed s) = prj s
+    type Inject (Typed sup) sig = (Typeable (DenResult sig), Inject sup sig)
+    prj (Typed a) = prj a
 
 -- -- | Inject a symbol in an 'AST' with a 'Typed' domain
 -- injT :: (sub :<: sup, Typeable (DenResult sig)) =>

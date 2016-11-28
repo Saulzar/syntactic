@@ -121,6 +121,7 @@ library
     ConstraintKinds
     TypeFamilyDependencies
     TypeApplications
+    TupleSections
 
 
 
