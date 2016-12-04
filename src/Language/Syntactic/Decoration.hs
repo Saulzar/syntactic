@@ -37,7 +37,7 @@ import Language.Syntactic.Sugar
 -- to
 --
 -- > AST (sym :&: info) sig
-data (expr :&: info) sig
+data ((expr :: Sym t)  :&: info) (sig :: Sig t)
   where
     (:&:)
         :: { decorExpr :: expr sig
@@ -53,9 +53,14 @@ instance (NFData1 sym, NFData1 info) => NFData1 (sym :&: info)
   where
     rnf1 (s :&: i) = rnf1 s `seq` rnf1 i `seq` ()
 
-instance {-# OVERLAPPING #-} Project sub sup => Project sub (sup :&: info)
+
+
+
+instance Project sub sup => Project (sub :&: info) (sup :&: info)
   where
-    prj = prj . decorExpr
+    prj (sup :&: info) = (:&: info) <$> prj sup 
+
+
 
 instance Equality expr => Equality (expr :&: info)
   where
@@ -145,14 +150,13 @@ writeHtmlDecorWith showInfo file a = writeHtmlTree Nothing file $ mkTree [] a
 -- >     => info x
 -- >     -> sub (a :-> b :-> ... :-> Full x)
 -- >     -> (ASTF sup a -> ASTF sup b -> ... -> ASTF sup x)
-smartSymDecor
-    :: ( Signature sig
-       , f              ~ SmartFun (sup :&: info) sig
-       , sub :<: sup
-       , Inject sup sig
-       )
-    => info (DenResult sig) -> sub sig -> f
-smartSymDecor d = smartSym' . (:&: d) . inj
+-- smartSymDecor
+--     :: ( Signature sig
+--        , f              ~ SmartFun (sup :&: info) sig
+--        , sub :<: sup
+--        )
+--     => info (DenResult sig) -> sub sig -> f
+-- smartSymDecor d = smartSym' . (:&: d) . inj
 
 -- | \"Sugared\" symbol application
 --
@@ -168,12 +172,11 @@ smartSymDecor d = smartSym' . (:&: d) . inj
 -- >     ) => info (Internal x)
 -- >       -> sub (Internal a :-> Internal b :-> ... :-> Full (Internal x))
 -- >       -> (a -> b -> ... -> x)
-sugarSymDecor
-    :: ( Signature sig
-       , fi             ~ SmartFun (sup :&: info) sig
-       , SyntacticN f fi
-       , sub :<: sup
-       , Inject sup sig
-       )
-    => info (DenResult sig) -> sub sig -> f
-sugarSymDecor i = sugarN . smartSymDecor i
+-- sugarSymDecor
+--     :: ( Signature sig
+--        , fi             ~ SmartFun (sup :&: info) sig
+--        , SyntacticN f fi
+--        , sub :<: sup
+--        )
+--     => info (DenResult sig) -> sub sig -> f
+-- sugarSymDecor i = sugarN . smartSymDecor i

@@ -26,20 +26,15 @@ module Language.Syntactic.Functional
     , Construct (..)
     , Binding (..)
     , maxLam
-    , lam_template
     , lam
     , fromDeBruijn
     , BindingT (..)
-    , maxLamT
-    , lamT_template
-    , lamT
-    , lamTyped
     , BindingDomain (..)
     , Let (..)
     , MONAD (..)
     , Remon (..)
     , desugarMonad
-    , desugarMonadTyped
+    --, desugarMonadTyped
       -- * Free and bound variables
     , freeVars
     , allVars
@@ -216,7 +211,7 @@ maxLam _ _ = 0
 --
 -- See \"Using Circular Programs for Higher-Order Syntax\"
 -- (ICFP 2013, <http://www.cse.chalmers.se/~emax/documents/axelsson2013using.pdf>).
-lam :: forall proxy bind sym a b. (BindingDomain bind sym, Inject sym (Full a), Inject sym (b :-> Full (a -> b)), Bindable bind a, Bindable bind b)
+lam :: forall proxy bind sym a b. (BindingDomain bind sym, Bindable bind a, Bindable bind b)
     => proxy bind -> (ASTF sym a -> ASTF sym b) -> ASTF sym (a -> b)
 lam p f = fun :$ body
   where
@@ -298,15 +293,20 @@ class BindingSym (bind :: Sym Type)
     -- | Rename a variable or a lambda (no effect for other symbols)
     mapName :: (Name -> Name) -> bind sig -> bind sig
 
+instance BindingSym Binding
 
-renameBind :: (BindingDomain bind sym, Inject sym sig) => proxy bind -> (Name -> Name) -> sym sig -> sym sig
-renameBind _ f sym | Just b <- prj sym = inj (mapName f b)
+prjAs :: (sub :<: sup) => proxy sub -> sup sig -> Maybe (sub sig)
+prjAs _ sup = prj sup
 
-prVar :: (BindingDomain bind sym) => proxy bind -> sym sig -> Maybe Name
-prVar _ sym = prj sym >>= varName
+renameBind :: (BindingDomain bind sym) => proxy bind -> (Name -> Name) -> sym sig -> sym sig
+renameBind p f sym | Just b <- prjAs p sym = inj (mapName f b)
+
+
+prVar :: forall bind sym proxy sig. (BindingDomain bind sym) => proxy bind -> sym sig -> Maybe Name
+prVar p sym = prjAs p sym >>= varName
 
 prLam :: (BindingDomain bind sym) => proxy bind -> sym sig -> Maybe Name
-prLam _ sym = prj sym >>= varName
+prLam p sym = prjAs p sym >>= varName
 
 
 -- | A symbol for let bindings
@@ -410,15 +410,15 @@ desugarMonad
     => Remon sym m (ASTF sym a) -> ASTF sym (m a)
 desugarMonad = flip runCont (sugarSym Return) . unRemon
 
--- | One-layer desugaring of monadic actions
-desugarMonadTyped
-    :: ( MONAD m :<: s
-       , sym ~ Typed s
-       , Typeable a
-       , TYPEABLE m
-       )
-    => Remon sym m (ASTF sym a) -> ASTF sym (m a)
-desugarMonadTyped = flip runCont (sugarSymTyped Return) . unRemon
+-- -- | One-layer desugaring of monadic actions
+-- desugarMonadTyped
+--     :: ( MONAD m :<: s
+--        , sym ~ Typed s
+--        , Typeable a
+--        , TYPEABLE m
+--        )
+--     => Remon sym m (ASTF sym a) -> ASTF sym (m a)
+-- desugarMonadTyped = flip runCont (sugarSymTyped Return) . unRemon
 
 
 
@@ -429,22 +429,22 @@ desugarMonadTyped = flip runCont (sugarSymTyped Return) . unRemon
 
 -- | Get the set of free variables in an expression
 freeVars :: (BindingDomain bind sym) => proxy bind -> AST sym sig -> Set Name
-freeVars _ var
+freeVars p var
     | Just v <- prVar p var = Set.singleton v
 freeVars p (lam :$ body)
     | Just v <- prLam p lam = Set.delete v (freeVars p body)
 freeVars p (s :$ a) = Set.union (freeVars p s) (freeVars p a)
-freeVars _ = Set.empty
+freeVars _ _ = Set.empty
 
 -- | Get the set of variables (free, bound and introduced by lambdas) in an
 -- expression
 allVars :: BindingDomain bind sym => proxy bind -> AST sym sig -> Set Name
-allVars var
+allVars p var
     | Just v <- prVar p var = Set.singleton v
-allVars (lam :$ body)
+allVars p (lam :$ body)
     | Just v <- prLam p lam = Set.insert v (allVars p body)
-allVars (s :$ a) = Set.union (allVars p s) (allVars p a)
-allVars _ = Set.empty
+allVars p (s :$ a) = Set.union (allVars p s) (allVars p a)
+allVars _ _ = Set.empty
 
 -- | Generate an infinite list of fresh names given a list of allocated names
 --
@@ -474,7 +474,7 @@ renameUnique' :: forall proxy bind sym a . BindingDomain bind sym =>
     proxy bind -> [Name] -> ASTF sym a -> ASTF sym a
 renameUnique' p vs a = flip evalState fs $ go Map.empty a
   where
-    fs = freshVars $ Set.toAscList (freeVars b a `Set.union` Set.fromList vs)
+    fs = freshVars $ Set.toAscList (freeVars p a `Set.union` Set.fromList vs)
 
     go :: Map Name Name -> AST sym sig -> State [Name] (AST sym sig)
     go env var

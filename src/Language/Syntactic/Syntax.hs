@@ -36,7 +36,7 @@ module Language.Syntactic.Syntax
     , Project (..)
     , (:<:) (..)
     , smartSym
-    , smartSymTyped
+    -- , smartSymTyped
     , Empty
       -- * Existential quantification
     , E (..)
@@ -219,45 +219,46 @@ instance (NFData1 sym1, NFData1 sym2) => NFData1 (sym1 :+: sym2)
 -- @(... `:+:` sub `:+:` ...)@.
 class Project (sub :: Sym t) (sup :: Sym t)
   where
-    type Inject sup (sig :: Sig t) :: Constraint
-    type Inject sup sig = ()
 
     -- | Partial projection from @sup@ to @sub@
     prj :: sup a -> Maybe (sub a)
-    prj = (fmap fst) . prj'
-
-    prj' :: sup a -> Maybe (sub a, Dict (Inject sup a))
 
 
-instance {-# OVERLAPPING #-} Project sub sup => Project sub (AST sup)
-  where
-    type Inject (AST sup) sig = (Inject sup sig)
-
-    prj' (Sym s) = prj' s
-    prj' _       = Nothing
-
-
-instance {-# OVERLAPPING #-} Project sym1 (sym1 :+: sym2)
-  where
-    type Inject (sym1 :+: sym2) sig = ()
-
-    prj' (InjL a) = Just (a, Dict)
-    prj' _        = Nothing
-
-type NoConstraint sig  = (() :: Constraint)
-
-instance {-# OVERLAPPING #-} (Project sym1 sym3) => Project sym1 (sym2 :+: sym3)
-  where
-    type Inject (sym2 :+: sym3) sig = ()
-
-    prj' (InjR a) = (, Dict) <$> prj a
-    prj' _        = Nothing
-
--- instance {-# OVERLAPPING #-} Project sym sup
+-- instance {-# OVERLAPPABLE #-} Project sym sym
 --     where
---       type Inject sym sig = ()
+--       prj a        = Just a
 --
---       prj' _        = Nothing
+-- instance {-# OVERLAPPABLE #-} Project sym sup
+--     where
+--       prj _        = Nothing
+
+
+
+
+instance Project sub sup => Project sub (AST sup)
+  where
+    prj (Sym s) = prj s
+    prj _       = Nothing
+
+instance Project sub sup => Project (Typed sub) (Typed sup)
+  where
+    prj (Typed s) = Typed <$> prj s
+
+
+-- instance {-# OVERLAPPING #-} Project sym1 (sym1 :+: sym2)
+--   where
+--
+--     prj (InjL a) = Just a
+--     prj _        = Nothing
+--
+--
+-- instance {-# OVERLAPPING #-} (Project sym1 sym3) => Project sym1 (sym2 :+: sym3)
+--   where
+--
+--     prj (InjR a) = prj a
+--     prj _        = Nothing
+
+
 
 
 -- | Symbol injection
@@ -266,24 +267,24 @@ instance {-# OVERLAPPING #-} (Project sym1 sym3) => Project sym1 (sym2 :+: sym3)
 class Project sub sup => sub :<: sup
   where
     -- | Injection from @sub@ to @sup@
-    inj :: Inject sup sig => sub sig -> sup sig
+    inj ::  sub sig -> sup sig
 
-instance {-# OVERLAPPING #-} (sub :<: sup) => (sub :<: AST sup)
+instance (sub :<: sup) => (sub :<: AST sup)
   where
     inj = Sym . inj
 
-instance {-# OVERLAPPING #-} (sub :<: sup) => (sub :<: Typed sup)
+instance  (sub :<: sup) => (Typed sub :<: Typed sup)
   where
-    inj = Typed . inj
+    inj (Typed sub) = Typed (inj sub)
 
 
-instance {-# OVERLAPPING #-} (sym1 :<: (sym1 :+: sym2))
-  where
-    inj = InjL
-
-instance {-# OVERLAPPING #-} (sym1 :<: sym3) => (sym1 :<: (sym2 :+: sym3))
-  where
-    inj = InjR . inj
+-- instance {-# OVERLAPPING #-} (sym1 :<: (sym1 :+: sym2))
+--   where
+--     inj = InjL
+--
+-- instance {-# OVERLAPPING #-} (sym1 :<: sym3) => (sym1 :<: (sym2 :+: sym3))
+--   where
+--     inj = InjR . inj
 
 -- The reason for separating the `Project` and `(:<:)` classes is that there are
 -- types that can be instances of the former but not the latter due to type
@@ -298,25 +299,24 @@ smartSym
     :: ( Signature sig
        , f   ~ SmartFun sup sig
        , sub :<: sup
-       , Inject sup sig
        )
     => sub sig -> f
 smartSym = smartSym' . inj
 
--- | Make a smart constructor of a symbol. 'smartSymTyped' has any type of the
--- form:
---
--- > smartSymTyped :: (sub :<: AST (Typed sup), Typeable x)
--- >     => sub (a :-> b :-> ... :-> Full x)
--- >     -> (ASTF sup a -> ASTF sup b -> ... -> ASTF sup x)
-smartSymTyped
-    :: ( Signature sig
-       , f         ~ SmartFun (Typed sup) sig
-       , sub :<: sup
-       , Inject (Typed sup) sig
-       )
-    => sub sig -> f
-smartSymTyped = smartSym
+-- -- | Make a smart constructor of a symbol. 'smartSymTyped' has any type of the
+-- -- form:
+-- --
+-- -- > smartSymTyped :: (sub :<: AST (Typed sup), Typeable x)
+-- -- >     => sub (a :-> b :-> ... :-> Full x)
+-- -- >     -> (ASTF sup a -> ASTF sup b -> ... -> ASTF sup x)
+-- smartSymTyped
+--     :: ( Signature sig
+--        , f         ~ SmartFun (Typed sup) sig
+--        , sub :<: sup
+--        , Inject (Typed sup) sig
+--        )
+--     => sub sig -> f
+-- smartSymTyped = smartSym
 
 -- | Empty symbol type
 --
@@ -366,10 +366,9 @@ data Typed :: (Sig Type -> Type) -> Sig Type ->Type
   where
     Typed :: Typeable (DenResult sig) => sym sig -> Typed sym sig
 
-instance {-# OVERLAPPING #-} Project sym1 sym2 => Project sym1 (Typed sym2)
-  where
-    type Inject (Typed sup) sig = (Typeable (DenResult sig), Inject sup sig)
-    prj (Typed a) = prj a
+-- instance Project sym1 sym2 => Project sym1 (Typed sym2)
+--   where
+--     prj (Typed a) = prj a
 
 -- -- | Inject a symbol in an 'AST' with a 'Typed' domain
 -- injT :: (sub :<: sup, Typeable (DenResult sig)) =>

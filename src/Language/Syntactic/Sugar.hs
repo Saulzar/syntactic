@@ -114,7 +114,6 @@ sugarSym
        , fi  ~ SmartFun sup sig
        , SyntacticN f fi
        , sub :<: sup
-       , Inject sup sig
        )
     => sub sig -> f
 sugarSym = sugarN . smartSym
@@ -133,12 +132,11 @@ sugarSym = sugarN . smartSym
 -- >     , Typeable (Internal x)
 -- >     ) => sub (Internal a :-> Internal b :-> ... :-> Full (Internal x))
 -- >       -> (a -> b -> ... -> x)
-sugarSymTyped
-    :: ( Signature sig
-       , fi        ~ SmartFun (Typed sup) sig
-       , SyntacticN f fi
-       , sub :<: sup
-       , Inject (Typed sup) sig
-       )
-    => sub sig -> f
-sugarSymTyped = sugarN . smartSymTyped
+-- sugarSymTyped
+--     :: ( Signature sig
+--        , fi        ~ SmartFun (Typed sup) sig
+--        , SyntacticN f fi
+--        , sub :<: sup
+--        )
+--     => sub sig -> f
+-- sugarSymTyped = sugarN . smartSymTyped
