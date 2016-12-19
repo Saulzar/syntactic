@@ -12,7 +12,9 @@ import Data.Typeable
 import Language.Syntactic
 import Language.Syntactic.Functional
 
+import Data.Proxy
 
+type TypedBinding = Typed BindingT
 
 instance
     ( sym ~ Typed s
@@ -26,6 +28,5 @@ instance
   where
     type Domain (a -> b)   = Domain a
     type Internal (a -> b) = Internal a -> Internal b
-    desugar f = lamTyped (desugar . f . sugar)
+    desugar f = lam (Proxy @TypedBinding) (desugar . f . sugar)
     sugar     = error "sugar not implemented for (a -> b)"
-

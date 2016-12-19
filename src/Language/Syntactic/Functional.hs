@@ -30,6 +30,9 @@ module Language.Syntactic.Functional
     , fromDeBruijn
     , BindingT (..)
     , BindingDomain (..)
+    , prLam
+    , prVar
+
     , Let (..)
     , MONAD (..)
     , Remon (..)
@@ -294,6 +297,12 @@ class BindingSym (bind :: Sym Type)
     mapName :: (Name -> Name) -> bind sig -> bind sig
 
 instance BindingSym Binding
+
+instance BindingSym BindingT
+
+instance BindingSym sym => BindingSym (Typed sym) where
+  type Bindable (Typed sym) a = (Bindable sym a, Typeable a)
+
 
 prjAs :: (sub :<: sup) => proxy sub -> sup sig -> Maybe (sub sig)
 prjAs _ sup = prj sup

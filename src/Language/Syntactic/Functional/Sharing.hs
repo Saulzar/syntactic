@@ -150,25 +150,26 @@ defaultInterfaceDecor teq mkFunInfo var lam sharable hoistOver = Interface {..}
 -- | Substituting a sub-expression. Assumes that the free variables of the
 -- replacing expression do not occur as binders in the whole expression (so that
 -- there is no risk of capturing).
-substitute :: forall sym a b
-    .  (Equality sym, BindingDomain sym)
-    => CodeMotionInterface sym
+substitute :: forall proxy bind sym a b
+    .  (Equality sym, BindingDomain bind sym)
+    => proxy bind
+    -> CodeMotionInterface sym
     -> ASTF sym a  -- ^ Sub-expression to be replaced
     -> ASTF sym a  -- ^ Replacing sub-expression
     -> ASTF sym b  -- ^ Whole expression
     -> ASTF sym b
-substitute iface x y a = subst a
+substitute p iface x y a = subst a
   where
-    fv = freeVars x
+    fv = freeVars p x
 
     subst :: ASTF sym c -> ASTF sym c
     subst a
-      | Just y' <- castExprCM iface y a, alphaEq x a = y'
+      | Just y' <- castExprCM iface y a, alphaEq p x a = y'
       | otherwise = subst' a
 
     subst' :: AST sym c -> AST sym c
     subst' a@(lam :$ body)
-      | Just v <- prLam lam
+      | Just v <- prLam p lam
       , Set.member v fv = a
     subst' (s :$ a) = subst' s :$ subst a
     subst' a = a
@@ -180,23 +181,24 @@ substitute iface x y a = subst a
   -- free in the expression to be replaced.
 
 -- | Count the number of occurrences of a sub-expression
-count :: forall sym a b
-    .  (Equality sym, BindingDomain sym)
-    => ASTF sym a  -- ^ Expression to count
+count :: forall proxy bind sym a b
+    .  (Equality sym, BindingDomain bind sym)
+    => proxy bind
+    -> ASTF sym a  -- ^ Expression to count
     -> ASTF sym b  -- ^ Expression to count in
     -> Int
-count a b = cnt b
+count p a b = cnt b
   where
-    fv = freeVars a
+    fv = freeVars p a
 
     cnt :: ASTF sym c -> Int
     cnt c
-      | alphaEq a c = 1
+      | alphaEq p a c = 1
       | otherwise   = cnt' c
 
     cnt' :: AST sym sig -> Int
     cnt' (lam :$ body)
-      | Just v <- prLam lam
+      | Just v <- prLam p lam
       , Set.member v fv = 0
           -- There can be no match under a lambda that binds a variable that is
           -- free in `a`. This case needs to be handled in order to avoid false
@@ -223,12 +225,12 @@ data Env sym = Env
     }
 
 -- | Checks whether a sub-expression in a given environment can be lifted out
-liftable :: BindingDomain sym => Env sym -> ASTF sym a -> Bool
-liftable env a = independent && isNothing (prVar a) && heuristic
+liftable :: BindingDomain bind sym => proxy bind -> Env sym -> ASTF sym a -> Bool
+liftable p env a = independent && isNothing (prVar p a) && heuristic
       -- Lifting dependent expressions is semantically incorrect. Lifting
       -- variables would cause `codeMotion` to loop.
   where
-    independent = Set.null $ Set.intersection (freeVars a) (dependencies env)
+    independent = Set.null $ Set.intersection (freeVars p a) (dependencies env)
     heuristic   = inLambda env || (counter env (EF a) > 1)
 
 -- | A sub-expression chosen to be shared together with an evidence that it can
@@ -238,22 +240,23 @@ data Chosen sym a
     Chosen :: InjDict sym b a -> ASTF sym b -> Chosen sym a
 
 -- | Choose a sub-expression to share
-choose :: forall sym a
-    .  (Equality sym, BindingDomain sym)
-    => CodeMotionInterface sym
+choose :: forall proxy bind sym a
+    .  (Equality sym, BindingDomain bind sym)
+    => proxy bind
+    -> CodeMotionInterface sym
     -> ASTF sym a
     -> Maybe (Chosen sym a)
-choose iface a = chooseEnvSub initEnv a
+choose p iface a = chooseEnvSub initEnv a
   where
     initEnv = Env
         { inLambda     = False
-        , counter      = \(EF b) -> count b a
+        , counter      = \(EF b) -> count p b a
         , dependencies = Set.empty
         }
 
     chooseEnv :: Env sym -> ASTF sym b -> Maybe (Chosen sym a)
     chooseEnv env b
-        | liftable env b
+        | liftable p env b
         , Just id <- mkInjDict iface b a
         = Just $ Chosen id b
     chooseEnv env b
@@ -263,7 +266,7 @@ choose iface a = chooseEnvSub initEnv a
     -- | Like 'chooseEnv', but does not consider the top expression for sharing
     chooseEnvSub :: Env sym -> AST sym b -> Maybe (Chosen sym a)
     chooseEnvSub env (Sym lam :$ b)
-        | Just v <- prLam lam
+        | Just v <- prLam p lam
         = chooseEnv (env' v) b
       where
         env' v = env
@@ -279,42 +282,43 @@ choose iface a = chooseEnvSub initEnv a
 -- unchanged. This in turn means that `codeMotionM` will loop, since it calls
 -- itself with `codeMotionM iface $ substitute iface b x a`.
 
-codeMotionM :: forall sym m a
+codeMotionM :: forall proxy bind sym m a
     .  ( Equality sym
-       , BindingDomain sym
+       , BindingDomain bind sym
        , MonadState Name m
        )
-    => CodeMotionInterface sym
+    => proxy bind
+    -> CodeMotionInterface sym
     -> ASTF sym a
     -> m (ASTF sym a)
-codeMotionM iface a
-    | Just (Chosen id b) <- choose iface a = share id b
+codeMotionM p iface a
+    | Just (Chosen id b) <- choose p iface a = share id b
     | otherwise = descend a
   where
     share :: InjDict sym b a -> ASTF sym b -> m (ASTF sym a)
     share id b = do
-        b' <- codeMotionM iface b
+        b' <- codeMotionM p iface b
         v  <- get; put (v+1)
         let x = Sym (injVariable id v)
-        body <- codeMotionM iface $ substitute iface b x a
+        body <- codeMotionM p iface $ substitute p iface b x a
         return
             $  Sym (injLet id)
             :$ b'
             :$ (Sym (injLambda id v) :$ body)
 
     descend :: AST sym b -> m (AST sym b)
-    descend (s :$ a) = liftM2 (:$) (descend s) (codeMotionM iface a)
+    descend (s :$ a) = liftM2 (:$) (descend s) (codeMotionM p iface a)
     descend a        = return a
 
 -- | Perform common sub-expression elimination and variable hoisting
-codeMotion :: forall sym m a
+codeMotion :: forall proxy bind sym m a
     .  ( Equality sym
-       , BindingDomain sym
+       , BindingDomain bind sym
        )
-    => CodeMotionInterface sym
+    => proxy bind
+    -> CodeMotionInterface sym
     -> ASTF sym a
     -> ASTF sym a
-codeMotion iface a = flip evalState maxVar $ codeMotionM iface a
+codeMotion p iface a = flip evalState maxVar $ codeMotionM p iface a
   where
-    maxVar = succ $ Set.findMax $ Set.insert 0 $ allVars a
-
+    maxVar = succ $ Set.findMax $ Set.insert 0 $ allVars p a

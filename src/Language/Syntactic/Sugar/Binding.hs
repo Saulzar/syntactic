@@ -5,10 +5,10 @@
 module Language.Syntactic.Sugar.Binding where
 
 
-
 import Language.Syntactic
 import Language.Syntactic.Functional
 
+import Data.Proxy
 
 
 instance
@@ -20,6 +20,5 @@ instance
   where
     type Domain (a -> b)   = Domain a
     type Internal (a -> b) = Internal a -> Internal b
-    desugar f = lam (desugar . f . sugar)
+    desugar f = lam (Proxy @Binding) (desugar . f . sugar)
     sugar     = error "sugar not implemented for (a -> b)"
-

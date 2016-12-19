@@ -23,29 +23,28 @@ import Language.Syntactic.Sugar.BindingTyped ()
 
 
 
--- | One-layer sugaring of monadic actions
-sugarMonad
-    :: ( sym ~ Typed s
-       , BindingT :<: s
-       , MONAD m  :<: s
-       , TYPEABLE m
-       , Typeable a
-       )
-    => ASTF sym (m a) -> Remon sym m (ASTF sym a)
-sugarMonad ma = Remon $ cont $ sugarSymTyped Bind ma
-
-instance
-    ( sym ~ Typed s
-    , Syntactic a, Domain a ~ sym
-    , BindingT :<: s
-    , MONAD m  :<: s
-    , TYPEABLE m
-    , Typeable (Internal a)
-    ) =>
-      Syntactic (Remon sym m a)
-  where
-    type Domain (Remon sym m a)   = sym
-    type Internal (Remon sym m a) = m (Internal a)
-    desugar = desugarMonadTyped . fmap desugar
-    sugar   = fmap sugar   . sugarMonad
-
+-- -- | One-layer sugaring of monadic actions
+-- sugarMonad
+--     :: ( sym ~ Typed s
+--        , BindingT :<: s
+--        , MONAD m  :<: s
+--        , TYPEABLE m
+--        , Typeable a
+--        )
+--     => ASTF sym (m a) -> Remon sym m (ASTF sym a)
+-- sugarMonad ma = Remon $ cont $ sugarSymTyped Bind ma
+--
+-- instance
+--     ( sym ~ Typed s
+--     , Syntactic a, Domain a ~ sym
+--     , BindingT :<: s
+--     , MONAD m  :<: s
+--     , TYPEABLE m
+--     , Typeable (Internal a)
+--     ) =>
+--       Syntactic (Remon sym m a)
+--   where
+--     type Domain (Remon sym m a)   = sym
+--     type Internal (Remon sym m a) = m (Internal a)
+--     desugar = desugarMonadTyped . fmap desugar
+--     sugar   = fmap sugar   . sugarMonad
