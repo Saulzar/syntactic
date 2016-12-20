@@ -32,6 +32,7 @@ import Language.Syntactic.Sugar.BindingTyped ()
 import Language.Syntactic.Sugar.TupleTyped ()
 import Language.Syntactic.TH
 
+import Data.Proxy
 
 
 --------------------------------------------------------------------------------
@@ -139,7 +140,8 @@ instance Type a => Show (Data a)
   where
     show = showExpr
 
-
+bindP :: Proxy BindingT
+bindP = Proxy
 
 --------------------------------------------------------------------------------
 -- * "Backends"
@@ -153,10 +155,10 @@ cmInterface = defaultInterface VarT LamT sharable (const True)
     sharable (Sym _) _ = False
       -- Simple expressions not shared
     sharable (lam :$ _) _
-        | Just _ <- prLam lam = False
+        | Just _ <- prLam bindP lam = False
       -- Lambdas not shared
     sharable _ (lam :$ _)
-        | Just _ <- prLam lam = False
+        | Just _ <- prLam bindP lam = False
       -- Don't place let bindings over lambdas. This ensures that function
       -- arguments of higher-order constructs such as `Parallel` are always
       -- lambdas.
@@ -172,9 +174,13 @@ cmInterface = defaultInterface VarT LamT sharable (const True)
       -- Array indexing not shared
     sharable _ _ = True
 
+
+cse :: (Syntactic a, Domain a ~ FeldDomain) => a -> ASTF FeldDomain (Internal a)
+cse = codeMotion bindP cmInterface . desugar
+
 -- | Show the expression
 showExpr :: (Syntactic a, Domain a ~ FeldDomain) => a -> String
-showExpr = render . codeMotion cmInterface . desugar
+showExpr = render . cse
 
 -- | Print the expression
 printExpr :: (Syntactic a, Domain a ~ FeldDomain) => a -> IO ()
@@ -182,7 +188,7 @@ printExpr = putStrLn . showExpr
 
 -- | Show the syntax tree using unicode art
 showAST :: (Syntactic a, Domain a ~ FeldDomain) => a -> String
-showAST = Syntactic.showAST . codeMotion cmInterface . desugar
+showAST = Syntactic.showAST . cse
 
 -- | Draw the syntax tree on the terminal using unicode art
 drawAST :: (Syntactic a, Domain a ~ FeldDomain) => a -> IO ()
@@ -191,7 +197,7 @@ drawAST = putStrLn . showAST
 -- | Write the syntax tree to an HTML file with foldable nodes
 writeHtmlAST :: (Syntactic a, Domain a ~ FeldDomain) => a -> IO ()
 writeHtmlAST =
-    Syntactic.writeHtmlAST "tree.html" . codeMotion cmInterface . desugar
+    Syntactic.writeHtmlAST "tree.html" . cse
 
 -- | Evaluate an expression
 eval :: (Syntactic a, Domain a ~ FeldDomain) => a -> Internal a
@@ -205,7 +211,7 @@ eval = evalClosed . desugar
 
 -- | Literal
 value :: Syntax a => Internal a -> a
-value a = sugar $ injT $ Construct (show a) a
+value a = sugar $ inj $ Typed (Construct (show a) a)
 
 false :: Data Bool
 false = value False
@@ -216,6 +222,8 @@ true = value True
 -- | Force computation
 force :: Syntax a => a -> a
 force = resugar
+
+
 
 instance (Type a, Num a) => Num (Data a)
   where
@@ -376,4 +384,3 @@ matMul :: Matrix Float -> Matrix Float -> Matrix Float
 matMul a b = forEach a $ \a' ->
                forEach (transpose b) $ \b' ->
                  scProd a' b'
-

@@ -111,12 +111,24 @@ instance {-# OVERLAPPING #-}
 -- >       -> (a -> b -> ... -> x)
 sugarSym
     :: ( Signature sig
-       , fi  ~ SmartFun sup sig
-       , SyntacticN f fi
+       , SyntacticN f (SmartFun sup sig)
        , sub :<: sup
        )
     => sub sig -> f
 sugarSym = sugarN . smartSym
+
+
+sugarSymTyped
+    :: ( Signature sig
+       , SyntacticN f (SmartFun (Typed sup) sig)
+       , sub :<: sup
+       , Typeable (DenResult sig)
+       )
+    => sub sig -> f
+sugarSymTyped = sugarN . smartSym . Typed
+
+
+
 
 -- | \"Sugared\" symbol application
 --
