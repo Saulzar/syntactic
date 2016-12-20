@@ -61,6 +61,8 @@ import Data.Constraint
 
 import Control.DeepSeq
 import Data.Typeable
+import Data.Inject
+
 #if MIN_VERSION_GLASGOW_HASKELL(7,10,0,0)
 #else
 import Data.Foldable (Foldable)
@@ -217,11 +219,7 @@ instance (NFData1 sym1, NFData1 sym2) => NFData1 (sym1 :+: sym2)
 --
 -- The class is defined for /all pairs of types/, but 'prj' can only succeed if @sup@ is of the form
 -- @(... `:+:` sub `:+:` ...)@.
-class Project (sub :: Sym t) (sup :: Sym t)
-  where
 
-    -- | Partial projection from @sup@ to @sub@
-    prj :: sup a -> Maybe (sub a)
 
 
 -- instance {-# OVERLAPPABLE #-} Project sym sym
@@ -264,10 +262,7 @@ instance Project sub sup => Project (Typed sub) (Typed sup)
 -- | Symbol injection
 --
 -- The class includes types @sub@ and @sup@ where @sup@ is of the form @(... `:+:` sub `:+:` ...)@.
-class Project sub sup => sub :<: sup
-  where
-    -- | Injection from @sub@ to @sup@
-    inj ::  sub sig -> sup sig
+
 
 instance (sub :<: sup) => (sub :<: AST sup)
   where
@@ -295,12 +290,7 @@ instance  (sub :<: sup) => (Typed sub :<: Typed sup)
 -- > smartSym :: (sub :<: AST sup)
 -- >     => sub (a :-> b :-> ... :-> Full x)
 -- >     -> (ASTF sup a -> ASTF sup b -> ... -> ASTF sup x)
-smartSym
-    :: ( Signature sig
-       , f   ~ SmartFun sup sig
-       , sub :<: sup
-       )
-    => sub sig -> f
+smartSym :: (Signature sig, sub :<: sup) => sub sig -> SmartFun sup sig
 smartSym = smartSym' . inj
 
 -- -- | Make a smart constructor of a symbol. 'smartSymTyped' has any type of the

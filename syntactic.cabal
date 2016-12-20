@@ -66,6 +66,9 @@ library
     Language.Syntactic.Sugar.BindingTyped
     Language.Syntactic.Sugar.Monad
     Language.Syntactic.Sugar.MonadTyped
+    Data.SumF
+    Data.Inject
+
   if flag(th)
     exposed-modules:
       Data.NestTuple
@@ -84,7 +87,8 @@ library
     deepseq,
     mtl >= 2 && < 3,
     syb,
-    tree-view >= 0.5
+    tree-view >= 0.5,
+    type-combinators
 
   if impl(ghc < 7.10)
     build-depends: base-orphans
@@ -112,6 +116,7 @@ library
     FunctionalDependencies
     GADTs
     GeneralizedNewtypeDeriving
+    LambdaCase
     RankNTypes
     RecordWildCards
     ScopedTypeVariables
@@ -122,6 +127,7 @@ library
     TypeFamilyDependencies
     TypeApplications
     TupleSections
+    UndecidableInstances
 
 
 

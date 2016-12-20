@@ -32,6 +32,8 @@ import Language.Syntactic.Sugar.BindingTyped ()
 import Language.Syntactic.Sugar.TupleTyped ()
 import Language.Syntactic.TH
 
+import Data.SumF
+
 import Data.Proxy
 
 
@@ -107,15 +109,8 @@ instance Eval ForLoop
   where
     evalSym ForLoop = \len init body -> foldl (flip body) init [0 .. len-1]
 
-type FeldDomain = Typed
-    (   BindingT
-    :+: Let
-    :+: Tuple
-    :+: Arithmetic
-    :+: Parallel
-    :+: ForLoop
-    :+: Construct
-    )
+type Types = '[BindingT, Let, Tuple, Arithmetic, Parallel, ForLoop, Construct]
+type FeldDomain = Typed (SumF Types)
   -- `Construct` can be used to create arbitrary symbols from a name and an
   -- evaluation function. We could have used `Construct` for all symbols, but
   -- the problem with `Construct` is that it does not know about the arity or
